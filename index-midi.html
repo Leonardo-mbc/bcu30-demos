@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Web Audio API test</title>
+        <link href="style.css" rel="stylesheet" />
+        <link rel="stylesheet" class="umbrui" href="/umbrui/range.css">
+        <link rel="stylesheet" class="umbrui" href="/umbrui/checkbox.css">
+    </head>
+    <body>
+        <audio src="/musics/test-music.mp3" id="audio" preload="auto" loop></audio>
+        <ul>
+            <li class="volume-range-wrapper">
+                <i class="fa fa-volume-off" aria-hidden="true"></i>
+                <input id="volumeRange" type="range" min="0" max="1" step="0.05" value="1.0" />
+                <i class="fa fa-volume-up" aria-hidden="true"></i>
+            </li>
+            <li><input id="playToggle" type="checkbox" data-icon1="■" data-icon2="▶" /></li>
+            <li>
+                <div class="kaosspad" />
+            </li>
+        </ul>
+        <ul class="visualizer-wrapper">
+            <li>
+                <div id="lowpass-filter" class="indicators">
+                    <div class="knob" data-value="0"></div>
+                </div>
+                <div id="highpass-filter" class="indicators">
+                    <div class="knob" data-value="0"></div>
+                </div>
+            </li>
+            <li>
+                <div class="visualizer" />
+            </li>
+        </ul>
+        <script src="https://use.fontawesome.com/b2fcd59561.js"></script>
+        <script>
+            const VISUALIZER_BARS = 20;
+            const ANALYZER_FREQS_COUNT = 48;
+            const KNOB_NEEDLE_COUNT = 20;
+
+            const audioElement = document.getElementById('audio');
+            const context = new AudioContext();
+            const sourceNode = context.createMediaElementSource(audioElement);
+            const gainNode = context.createGain();
+            const highPassFilterNode = context.createBiquadFilter();
+            const lowPassFilterNode = context.createBiquadFilter();
+            const analyserNode = context.createAnalyser();
+
+            analyserNode.fftSize = 1024;
+            let analyserTimes = new Uint8Array(analyserNode.frequencyBinCount);
+            let analyserFreqs = new Uint8Array(ANALYZER_FREQS_COUNT);
+
+            sourceNode.connect(highPassFilterNode);
+            highPassFilterNode.connect(lowPassFilterNode);
+            lowPassFilterNode.connect(gainNode);
+            gainNode.connect(analyserNode);
+            analyserNode.connect(context.destination);
+
+            highPassFilterNode.type = "highpass";
+            highPassFilterNode.frequency.value = 0;
+            lowPassFilterNode.type = "lowpass";
+            lowPassFilterNode.frequency.value = 4400;
+
+            gainNode.gain.value = 1.0;
+
+            document.querySelector('#volumeRange').addEventListener('input', (e) => {
+                gainNode.gain.value = parseFloat(e.target.value);
+            });
+
+            document.querySelector('#playToggle').addEventListener('change', (e) => {
+                audioElement[e.target.checked? 'play': 'pause']();
+            });
+
+            document.querySelector('.kaosspad').addEventListener('mousemove', (e) => {
+                const kaosspad = document.querySelector('.kaosspad');
+                const x = (e.x - kaosspad.offsetLeft) / kaosspad.clientWidth;
+                const y = (e.y - kaosspad.offsetTop) / kaosspad.clientHeight;
+
+                highPassFilterNode.frequency.value = x * 20000;
+                lowPassFilterNode.frequency.value = (1 - y) * 20000;
+            });
+
+            document.querySelector('.kaosspad').addEventListener('mouseout', (e) => {
+                highPassFilterNode.frequency.value = 0;
+                lowPassFilterNode.frequency.value = 4400;
+            });
+
+            const makeKaossPad = (x, y, dom) => {
+                const chipLine = document.createElement('div');
+                chipLine.className = 'chip-line';
+                const chip = document.createElement('div');
+                chip.className = 'chip';
+
+                for(let i = 0; i < y; i++) {
+                    const chipLineClone = chipLine.cloneNode(true);
+                    for(let j = 0; j < y; j++) {
+                        chipLineClone.appendChild(chip.cloneNode(true));
+                    }
+                    dom.appendChild(chipLineClone);
+                }
+            };
+
+            const makeVisualizer = (x, dom) => {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+
+                for(let i = 0; i < x; i++) {
+                    dom.appendChild(bar.cloneNode(true));
+                }
+            };
+
+            const makeIndicators = (n, dom) => {
+                const indicator = document.createElement('div');
+                indicator.className = 'indicator';
+
+                for(let i = -20; i <= 200; i += 200.0 / n) {
+                    const needle = indicator.cloneNode(true);
+                    needle.style.transform = `rotate3d(0, 0, 1, ${i}deg)`;
+                    dom.appendChild(needle);
+                }
+
+            };
+
+            const visualizerUpdate = () => {
+                analyserNode.getByteFrequencyData(analyserFreqs);
+                const visualizer = document.querySelector('.visualizer');
+                const bars = document.querySelectorAll('.visualizer .bar');
+                const resolution = parseInt(ANALYZER_FREQS_COUNT / VISUALIZER_BARS);
+
+                for(let i = 0, b = 0; b < VISUALIZER_BARS; i += resolution, b++) {
+                    bars[b].style.height = `${analyserFreqs[i] / 255.0 * visualizer.clientHeight}px`;
+                }
+
+                requestAnimationFrame(visualizerUpdate)
+            };
+
+
+            makeKaossPad(17, 17, document.querySelector('.kaosspad'));
+            makeVisualizer(VISUALIZER_BARS, document.querySelector('.visualizer'));
+            makeIndicators(KNOB_NEEDLE_COUNT, document.querySelector('#lowpass-filter'));
+            makeIndicators(KNOB_NEEDLE_COUNT, document.querySelector('#highpass-filter'));
+            requestAnimationFrame(visualizerUpdate)
+
+
+            /** MIDI **/
+            let midi = null;
+            let inputs, outputs;
+            const idi= new Array(16);
+            const effectorValue = {};
+            const KEYS_CONFIG = {
+                "192": {
+                    "name": "FX_TYPE",
+                    "values": [
+                        { "name": "LFO_LPF" },
+                        { "name": "LFO_HPF" },
+                        { "name": "PHASER" },
+                        { "name": "FLANGER" },
+                        { "name": "SLICER" },
+                        { "name": "PITCHSHIFT" },
+                        { "name": "DELAY" },
+                        { "name": "TAPE_ECHO" }
+                    ]
+                },
+                "176": {
+                    "name": "EQ_PAN",
+                    "values": [
+                        { "name": "PAN" },
+                        { "name": "HI" },
+                        { "name": "MID" },
+                        { "name": "LO" },
+                        { "name": "TIME" },
+                        { "name": "MOD" },
+                        { "name": "FB" },
+                        { "name": "DRY_WET" },
+                        { "name": "FX_MIX" },
+                        { "name": "MUTE" },
+                        { "name": "CUE" },
+                        { "name": "VOLUME" },
+                        { "name": "A" },
+                        { "name": "B" }
+                    ]
+                }
+            };
+
+            const onMIDISuccess = (midiAccess) => {
+                console.log("MIDI ready!");
+                midi = midiAccess;
+
+                var inputIterator = midi.inputs.values();
+                inputs = [];
+                console.log("inputs: ");
+                for (var o = inputIterator.next(); !o.done; o = inputIterator.next()) {
+                    inputs.push(o.value);
+                    console.log(o.value.name);
+                }
+
+                var outputIterator = midi.outputs.values();
+                outputs = [];
+                console.log("outputs: ");
+                for (var o = outputIterator.next(); !o.done; o = outputIterator.next()) {
+                    outputs.push(o.value);
+                    console.log(o.value.name);
+                }
+
+                for (i = 0; i < inputs.length; i++) {
+                    inputs[i].onmidimessage = handleMIDIMessage;
+                    idi[inputs[i].id] = i;
+                }
+            };
+
+            const handleMIDIMessage = (event) => {
+                if(event.data.length > 1) {
+                    console.log(event.data);
+                    const [line, knob, value] = event.data;
+                    console.log(KEYS_CONFIG)
+                    if(value) {
+                        effectorValue[KEYS_CONFIG[line].values[knob].name] = value;
+                    } else {
+                        effectorValue[KEYS_CONFIG[line].name] = KEYS_CONFIG[line].values[knob].name;
+                    }
+
+                    if(value) {
+                        const normaledValue = (value / 127);
+                        if(effectorValue["FX_TYPE"] == "LFO_LPF") {
+                            lowPassFilterNode.frequency.value = (1 - normaledValue) * 20000;
+                            const knob = document.querySelector('#lowpass-filter .knob');
+                            const indicators = document.querySelectorAll('#lowpass-filter .indicator');
+                            for(let i = 0; i <= parseInt(KNOB_NEEDLE_COUNT * normaledValue); i++) {
+                                indicators[i].classList.add('on');
+                            }
+                            for(let i = parseInt(KNOB_NEEDLE_COUNT * normaledValue); i <= KNOB_NEEDLE_COUNT; i++) {
+                                indicators[i].classList.remove('on');
+                            }
+                            knob.setAttribute('data-value', value);
+                        }
+                        if(effectorValue["FX_TYPE"] == "LFO_HPF") {
+                            highPassFilterNode.frequency.value = normaledValue * 20000;
+                            lowPassFilterNode.frequency.value = (1 - normaledValue) * 20000;
+                            const knob = document.querySelector('#highpass-filter .knob');
+                            const indicators = document.querySelectorAll('#highpass-filter .indicator');
+                            for(let i = 0; i <= parseInt(KNOB_NEEDLE_COUNT * normaledValue); i++) {
+                                indicators[i].classList.add('on');
+                            }
+                            for(let i = parseInt(KNOB_NEEDLE_COUNT * normaledValue); i <= KNOB_NEEDLE_COUNT; i++) {
+                                indicators[i].classList.remove('on');
+                            }
+                            knob.setAttribute('data-value', value);
+                        }
+                    }
+                }
+            };
+
+            navigator.requestMIDIAccess({sysex: true}).then(onMIDISuccess, (msg) => {
+                console.log("Failed to get MIDI access - " + msg);
+            });
+        </script>
+    </body>
+</html>

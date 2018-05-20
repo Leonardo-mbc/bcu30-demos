@@ -1,0 +1,205 @@
+<html>
+<head>
+    <title>three.js test</title>
+    <style>
+        body { margin: 0; }
+        canvas { width: 100%; height: 100% }
+    </style>
+</head>
+<body>
+<audio src="/musics/test-music.mp3" id="audio" preload="auto" loop></audio>
+<script src="/libs/three.min.js"></script>
+<script>
+  /** Audio */
+  const VISUALIZER_BARS = 24;
+  const ANALYZER_FREQS_COUNT = 24;
+  const VISUALIZER_BARS_START_FROM = Math.PI / 2;
+
+  const audioElement = document.getElementById('audio');
+  const context = new AudioContext();
+  const sourceNode = context.createMediaElementSource(audioElement);
+  const gainNode = context.createGain();
+  const highPassFilterNode = context.createBiquadFilter();
+  const lowPassFilterNode = context.createBiquadFilter();
+  const analyserNode = context.createAnalyser();
+
+  analyserNode.fftSize = 1024;
+  let analyserTimes = new Uint8Array(analyserNode.frequencyBinCount);
+  let analyserFreqs = new Uint8Array(ANALYZER_FREQS_COUNT);
+
+  sourceNode.connect(highPassFilterNode);
+  highPassFilterNode.connect(lowPassFilterNode);
+  lowPassFilterNode.connect(gainNode);
+  gainNode.connect(analyserNode);
+  analyserNode.connect(context.destination);
+
+  highPassFilterNode.type = "highpass";
+  highPassFilterNode.frequency.value = 0;
+  lowPassFilterNode.type = "lowpass";
+  lowPassFilterNode.frequency.value = 4400;
+
+  gainNode.gain.value = 1.0;
+  audioElement.play();
+
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x000000, 0.0050);
+
+  const camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 1);
+  document.body.appendChild(renderer.domElement);
+
+
+  camera.position.z = 5;
+
+  /** background image */
+  const loader = new THREE.TextureLoader();
+  loader.load('/images/background.png', (image) => {
+      const geometry = new THREE.PlaneBufferGeometry(300, 200, 1, 1);
+      const material = new THREE.MeshBasicMaterial({ map: image });
+      const plane = new THREE.Mesh(geometry, material);
+      plane.position.z = -100;
+      scene.add(plane);
+  }, (xhr) => {
+      console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+  }, (xhr) => {
+      console.log('An error happened');
+  });
+
+
+  const makeIndicator = (resolution) => {
+      const geometry = new THREE.BoxBufferGeometry(0.1, 0.4, 3.5, 1, 1, 1);
+      const material = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+      const pylon = new THREE.Mesh(geometry, material);
+
+      const deltaTheta = 2 * Math.PI / resolution;
+      const h = 1.2;
+      const pylons = new THREE.Object3D();
+      for(let i = 0; i < resolution; i++) {
+        const clonePylon = pylon.clone();
+        const theta = deltaTheta * i;
+        clonePylon.position.x = h * Math.cos(theta);
+        clonePylon.position.y = h * Math.sin(theta);
+        clonePylon.rotation.x = Math.sin(-theta);
+        clonePylon.rotation.y = Math.cos(theta);
+        clonePylon.rotation.z = theta;
+        pylons.add(clonePylon);
+      }
+
+      scene.add(pylons);
+      return pylons;
+  };
+
+  const makeSpectrum = (resolution) => {
+      const spectrum = new THREE.Object3D();
+      const split = resolution;
+      const deltaTheta = Math.PI / split;
+      const ofs = 5;
+      const width = 1;
+
+      for(let i = 0; i < split; i++) {
+          const rectShape = new THREE.Shape();
+          const theta = deltaTheta * i + VISUALIZER_BARS_START_FROM;
+          rectShape.moveTo(
+              ofs * Math.cos(theta) + width * 0.5 * Math.cos(theta - Math.PI / 2),
+              ofs * Math.sin(theta) + width * 0.5 * Math.sin(theta - Math.PI / 2)
+          );
+          rectShape.lineTo(
+              ofs * Math.cos(theta) + width * 0.5 * Math.cos(theta + Math.PI / 2),
+              ofs * Math.sin(theta) + width * 0.5 * Math.sin(theta + Math.PI / 2)
+          );
+          rectShape.lineTo(
+              10 * Math.cos(theta) + width * 0.5 * Math.cos(theta + Math.PI / 2),
+              10 * Math.sin(theta) + width * 0.5 * Math.sin(theta + Math.PI / 2)
+          );
+          rectShape.lineTo(
+              10 * Math.cos(theta) + width * 0.5 * Math.cos(theta - Math.PI / 2),
+              10 * Math.sin(theta) + width * 0.5 * Math.sin(theta - Math.PI / 2)
+          );
+
+          var geometry = new THREE.ShapeGeometry(rectShape);
+          var material = new THREE.MeshPhongMaterial({
+              color: 0x009DFF,
+              fog: true,
+              opacity: 0.85
+          });
+          var line = new THREE.Mesh(geometry, material);
+          spectrum.add(line);
+      }
+
+      spectrum.position.set(0, 0, -20);
+      spectrum.width = width;
+      scene.add(spectrum);
+
+      return spectrum;
+  };
+
+  const spectrum1 = makeSpectrum(VISUALIZER_BARS);
+  const spectrum2 = makeSpectrum(VISUALIZER_BARS);
+  spectrum2.rotation.z = Math.PI;
+  const freqsWaveChange = (analyserFreqs) => {
+      const deltaTheta = Math.PI / analyserFreqs.length;
+      for(var i=0; i<analyserFreqs.length; i++) {
+          var value = analyserFreqs[i] * 0.05;
+          const width = spectrum1.width * value * 0.15 < 1? 1 : spectrum1.width * value * 0.15;
+          const theta = deltaTheta * i + VISUALIZER_BARS_START_FROM;
+
+          spectrum1.children[i].geometry.vertices[2].x =
+              value * Math.cos(theta) + width * 0.5 * Math.cos(theta + Math.PI / 2);
+          spectrum1.children[i].geometry.vertices[2].y =
+              value * Math.sin(theta) + width * 0.5 * Math.sin(theta + Math.PI / 2);
+          spectrum1.children[i].geometry.vertices[3].x =
+              value * Math.cos(theta) + width * 0.5 * Math.cos(theta - Math.PI / 2);
+          spectrum1.children[i].geometry.vertices[3].y =
+              value * Math.sin(theta) + width * 0.5 * Math.sin(theta - Math.PI / 2);
+
+          spectrum2.children[i].geometry.vertices[2].x =
+              value * Math.cos(theta) + width * 0.5 * Math.cos(theta + Math.PI / 2);
+          spectrum2.children[i].geometry.vertices[2].y =
+              value * Math.sin(theta) + width * 0.5 * Math.sin(theta + Math.PI / 2);
+          spectrum2.children[i].geometry.vertices[3].x =
+              value * Math.cos(theta) + width * 0.5 * Math.cos(theta - Math.PI / 2);
+          spectrum2.children[i].geometry.vertices[3].y =
+              value * Math.sin(theta) + width * 0.5 * Math.sin(theta - Math.PI / 2);
+
+          spectrum1.children[i].geometry.verticesNeedUpdate = true;
+          spectrum2.children[i].geometry.verticesNeedUpdate = true;
+          spectrum1.children[i].material.color.setHSL(analyserFreqs[i] / 256, 1.0, 0.5);
+          spectrum2.children[i].material.color.setHSL(analyserFreqs[i] / 256, 1.0, 0.5);
+      }
+
+      camera.position.z = analyserFreqs[6] * 0.07;
+  };
+
+  document.body.addEventListener('mousemove', (e) => {
+      if(e.shiftKey && e.ctrlKey) {
+          camera.position.z += e.movementY / 100;
+      } else if(e.shiftKey) {
+          camera.position.x += e.movementX / 100;
+          camera.position.y -= e.movementY / 100;
+      } else if(e.ctrlKey) {
+          camera.rotation.y += e.movementX / 100;
+          camera.rotation.x -= e.movementY / 100;
+      }
+  });
+
+  var light = new THREE.DirectionalLight(0x00ffff);
+  light.position.set(0, 0, 1).normalize();
+  scene.add(light);
+
+  const render = function () {
+      analyserNode.getByteFrequencyData(analyserFreqs);
+      const resolution = parseInt(ANALYZER_FREQS_COUNT / VISUALIZER_BARS);
+
+      freqsWaveChange(analyserFreqs)
+
+      requestAnimationFrame(render);
+      renderer.render(scene, camera);
+  };
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Web Audio API test</title>
+        <link href="style.css" rel="stylesheet" />
+        <link rel="stylesheet" class="umbrui" href="/umbrui/range.css">
+        <link rel="stylesheet" class="umbrui" href="/umbrui/checkbox.css">
+    </head>
+    <body>
+        <audio src="/musics/test-music.mp3" id="audio" preload="auto" loop></audio>
+        <ul>
+            <li class="volume-range-wrapper">
+                <i class="fa fa-volume-off" aria-hidden="true"></i>
+                <input id="volumeRange" type="range" min="0" max="1" step="0.05" value="1.0" />
+                <i class="fa fa-volume-up" aria-hidden="true"></i>
+            </li>
+            <li><input id="playToggle" type="checkbox" data-icon1="■" data-icon2="▶" /></li>
+            <li>
+                <div class="kaosspad" />
+            </li>
+        </ul>
+        <ul class="visualizer-wrapper">
+            <li>
+                <div class="visualizer" />
+            </li>
+        </ul>
+        <script src="https://use.fontawesome.com/b2fcd59561.js"></script>
+        <script>
+            const VISUALIZER_BARS = 20;
+            const ANALYZER_FREQS_COUNT = 48;
+
+            const audioElement = document.getElementById('audio');
+            const context = new AudioContext();
+            const sourceNode = context.createMediaElementSource(audioElement);
+            const gainNode = context.createGain();
+            const highPassFilterNode = context.createBiquadFilter();
+            const lowPassFilterNode = context.createBiquadFilter();
+            const analyserNode = context.createAnalyser();
+
+            analyserNode.fftSize = 1024;
+            let analyserTimes = new Uint8Array(analyserNode.frequencyBinCount);
+            let analyserFreqs = new Uint8Array(ANALYZER_FREQS_COUNT);
+
+            sourceNode.connect(highPassFilterNode);
+            highPassFilterNode.connect(lowPassFilterNode);
+            lowPassFilterNode.connect(gainNode);
+            gainNode.connect(analyserNode);
+            analyserNode.connect(context.destination);
+
+            highPassFilterNode.type = "highpass";
+            highPassFilterNode.frequency.value = 0;
+            lowPassFilterNode.type = "lowpass";
+            lowPassFilterNode.frequency.value = 4400;
+
+            gainNode.gain.value = 1.0;
+
+            document.querySelector('#volumeRange').addEventListener('input', (e) => {
+                gainNode.gain.value = parseFloat(e.target.value);
+            });
+
+            document.querySelector('#playToggle').addEventListener('change', (e) => {
+                audioElement[e.target.checked? 'play': 'pause']();
+            });
+
+            document.querySelector('.kaosspad').addEventListener('mousemove', (e) => {
+                const kaosspad = document.querySelector('.kaosspad');
+                const x = (e.x - kaosspad.offsetLeft) / kaosspad.clientWidth;
+                const y = (e.y - kaosspad.offsetTop) / kaosspad.clientHeight;
+
+                highPassFilterNode.frequency.value = x * 20000;
+                lowPassFilterNode.frequency.value = (1 - y) * 20000;
+            });
+
+            document.querySelector('.kaosspad').addEventListener('mouseout', (e) => {
+                highPassFilterNode.frequency.value = 0;
+                lowPassFilterNode.frequency.value = 4400;
+            });
+
+            const makeKaossPad = (x, y, dom) => {
+                const chipLine = document.createElement('div');
+                chipLine.className = 'chip-line';
+                const chip = document.createElement('div');
+                chip.className = 'chip';
+
+                for(let i = 0; i < y; i++) {
+                    const chipLineClone = chipLine.cloneNode(true);
+                    for(let j = 0; j < y; j++) {
+                        chipLineClone.appendChild(chip.cloneNode(true));
+                    }
+                    dom.appendChild(chipLineClone);
+                }
+            };
+
+            const makeVisualizer = (x, dom) => {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+
+                for(let i = 0; i < x; i++) {
+                    dom.appendChild(bar.cloneNode(true));
+                }
+            };
+
+            const visualizerUpdate = () => {
+                analyserNode.getByteFrequencyData(analyserFreqs);
+                const visualizer = document.querySelector('.visualizer');
+                const bars = document.querySelectorAll('.visualizer .bar');
+                const resolution = parseInt(ANALYZER_FREQS_COUNT / VISUALIZER_BARS);
+
+                for(let i = 0, b = 0; b < VISUALIZER_BARS; i += resolution, b++) {
+                    bars[b].style.height = `${analyserFreqs[i] / 255.0 * visualizer.clientHeight}px`;
+                }
+
+//                console.log(analyserFreqs);
+                requestAnimationFrame(visualizerUpdate)
+            };
+
+
+            makeKaossPad(17, 17, document.querySelector('.kaosspad'));
+            makeVisualizer(VISUALIZER_BARS, document.querySelector('.visualizer'));
+            requestAnimationFrame(visualizerUpdate)
+        </script>
+    </body>
+</html>
